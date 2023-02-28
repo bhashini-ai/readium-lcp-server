@@ -70,6 +70,7 @@ ENV READIUM_LSDSERVER_CONFIG=/config.yaml
 ENV READIUM_FRONTEND_CONFIG=/config.yaml
 
 ENV PROFILE=$PROFILE
+ENV SERVER_CMD=$SERVER_CMD
 
 EXPOSE $PORT
 
@@ -80,4 +81,5 @@ ENV BASE_URL=https://jnanavahini.bhashini.ai/frontend/
 #RUN ldd /usr/bin/frontend
 
 RUN chmod +x /init.sh
-ENTRYPOINT ["/init.sh", $SERVER_CMD]
+CMD /init.sh $SERVER_CMD
+

@@ -1,3 +1,4 @@
+#!/bin/sh
 echo "START ENV SUBSTITUTION" && envsubst < /tmp/config.yaml > /config.yaml && echo "END ENV SUBSTITUTION"
 
 # Update base href of frontend index.html
