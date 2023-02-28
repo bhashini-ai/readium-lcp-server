@@ -47,18 +47,18 @@ ENV LOCALIZATION_LANGUAGES_ARRAY=[\"en-US\"]
 
 ENV LCP_DATABASE_ROOT_PATH=/lcp/db
 
-ENV LSD_BASE_URL=http://192.168.0.11:8990/lsdserver
+ENV LSD_BASE_URL=http://192.168.0.11:8990/
 ENV LSD_NOTIFY_AUTH_USER=adm_username
 ENV LSD_NOTIFY_AUTH_PASS=adm_password
 ENV LSD_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/lcp.sqlite?cache=shared&mode=rwc
 
-ENV LCP_BASE_URL=http://192.168.0.11:8989/lcpserver
+ENV LCP_BASE_URL=http://192.168.0.11:8989/
 ENV LCP_UPDATE_AUTH_USER=adm_username
 ENV LCP_UPDATE_AUTH_PASS=adm_password
 ENV LCP_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/lsd.sqlite?cache=shared&mode=rwc
 ENV LCP_STORAGE_PATH=/lcp/files/storage
 
-ENV FRONTEND_BASE_URL=http://192.168.0.11:8991/frontend
+ENV FRONTEND_BASE_URL=http://192.168.0.11:8991/
 ENV FRONTEND_MANAGE=/frontend/manage
 ENV FRONTEND_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/frontend.sqlite?cache=shared&mode=rwc
 
