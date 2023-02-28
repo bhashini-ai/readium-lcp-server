@@ -1,46 +1,15 @@
-#FROM ubuntu:20.04 as box
-
-#RUN arch && uname && apt-get -y update && apt-get -y upgrade \
-#    && echo $CONTAINER_TIMEZONE && ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime \
-#    && echo $CONTAINER_TIMEZONE > /etc/timezone \
-#    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
-#    && apt-get install -y make curl git python build-essential golang bsdmainutils \
-#    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash \
-#    && apt-get install -y nodejs
-
-FROM golang:alpine as box
-RUN apk add build-base
-
-WORKDIR /lcp
-COPY . /lcp/.
-
-ARG BUILD_PROD=false
-ARG LIBUSERKEY_PATH=/docker/dummy
-ARG USERKEYH_PATH=/docker/dummy
-ARG USERKEYGO_PATH=/docker/dummy
-
-COPY $LIBUSERKEY_PATH $LIBUSERKEY_PATH
-COPY $USERKEYH_PATH $USERKEYH_PATH
-COPY $USERKEYGO_PATH $USERKEYGO_PATH
-
-RUN make BUILD_PROD=${BUILD_PROD} LIBUSERKEY_PATH=${LIBUSERKEY_PATH} USERKEYH_PATH=${USERKEYH_PATH} USERKEYGO_PATH=${USERKEYGO_PATH} lcpserver && ls -als -R /lcp/build/bin
-
-RUN make lsdserver && ls -als -R /lcp/build/bin
-
-RUN make frontend && ls -als -R /lcp/build/bin
-
-#RUN make "frontend/manage" && ls -als -R /lcp/build/bin && ls -als /lcp/build/frontend/manage
+FROM lcp-builder:latest as lcp-builder
+FROM frontend-manage-builder:latest as frontend-manage-builder
 
 FROM alpine:latest
 WORKDIR /
 RUN apk add --no-cache gettext # envsubst
 
-COPY --from=box /lcp/build/bin/lcpserver /usr/bin/lcpserver
-COPY --from=box /lcp/build/bin/lsdserver /usr/bin/lsdserver
-COPY --from=box /lcp/build/bin/frontend /usr/bin/frontend
-#COPY --from=box /lcp/build/frontend/manage/. /frontend/manage/.
-RUN ls -als /usr/bin/lcpserver && ls -als /usr/bin/lsdserver && ls -als /usr/bin/frontend
-#&& ls -als /frontend/manage/ && ls -als /usr/bin/
+COPY --from=lcp-builder /lcp/build/bin/lcpserver /usr/bin/lcpserver
+COPY --from=lcp-builder /lcp/build/bin/lsdserver /usr/bin/lsdserver
+COPY --from=lcp-builder /lcp/build/bin/frontend /usr/bin/frontend
+COPY --from=frontend-manage-builder /lcp/build/frontend/manage/. /frontend/manage/.
+RUN ls -als /usr/bin/lcpserver && ls -als /usr/bin/lsdserver && ls -als /usr/bin/frontend && ls -als /frontend/manage/ && ls -als /usr/bin/
 
 ARG I18N=/messages
 ARG AUTH_FILE=/test/htpasswd 
@@ -77,18 +46,18 @@ ENV LOCALIZATION_LANGUAGES_ARRAY=[\"en-US\"]
 
 ENV LCP_DATABASE_ROOT_PATH=/lcp/db
 
-ENV LSD_BASE_URL=http://192.168.0.11:8080/lsdserver
+ENV LSD_BASE_URL=http://192.168.0.11:8990/lsdserver
 ENV LSD_NOTIFY_AUTH_USER=adm_username
 ENV LSD_NOTIFY_AUTH_PASS=adm_password
 ENV LSD_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/lcp.sqlite?cache=shared&mode=rwc
 
-ENV LCP_BASE_URL=http://192.168.0.11:8080/lcpserver
+ENV LCP_BASE_URL=http://192.168.0.11:8989/lcpserver
 ENV LCP_UPDATE_AUTH_USER=adm_username
 ENV LCP_UPDATE_AUTH_PASS=adm_password
 ENV LCP_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/lsd.sqlite?cache=shared&mode=rwc
 ENV LCP_STORAGE_PATH=/lcp/files/storage
 
-ENV FRONTEND_BASE_URL=http://192.168.0.11:8080/frontend
+ENV FRONTEND_BASE_URL=http://192.168.0.11:8991/frontend
 ENV FRONTEND_MANAGE=/frontend/manage
 ENV FRONTEND_DATABASE=sqlite3://file:$LCP_DATABASE_ROOT_PATH/frontend.sqlite?cache=shared&mode=rwc
 
@@ -111,4 +80,4 @@ ENV BASE_URL=https://jnanavahini.bhashini.ai/frontend/
 #RUN ldd /usr/bin/frontend
 
 RUN chmod +x /init.sh
-ENTRYPOINT ["/init.sh" $SERVER_CMD]
+ENTRYPOINT ["/init.sh", $SERVER_CMD]
