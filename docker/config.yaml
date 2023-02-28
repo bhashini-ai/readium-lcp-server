@@ -1,9 +1,5 @@
 # configuration for lcpserver, lsdserver and frontend.
 # It is meant to be used as a quick-start setup.
-#
-# Replace every occurence of <LCP_HOME> by the absolute path to the folder
-# hosting encrypted files, databases and certificates.
-
 
 # Shared configuration
 
@@ -38,9 +34,9 @@ certificate:
     private_key: "${PRIVATE_KEY}"
 license:
     links:
-        status: "${LSD_BASE_URL}/licenses/{license_id}/status"     
-        hint: "${FRONTEND_BASE_URL}/static/hint.html"
-        publication: "${LCP_BASE_URL}/contents/{publication_id}" 
+        status: "${FRONTEND_PROVIDER_URI}/api/v1/licenses/{license_id}/status"
+        hint: "${FRONTEND_PROVIDER_URI}/frontend/hint.html"
+        publication: "${FRONTEND_PROVIDER_URI}/contents/{publication_id}"
 
 
 # LSD Server
@@ -50,7 +46,7 @@ lsd:
     port: ${LSD_PORT}
     database: "${LSD_DATABASE}"
     auth_file: "${AUTH_FILE}"
-    license_link_url: "${FRONTEND_BASE_URL}/api/v1/licenses/{license_id}"
+    license_link_url: "${FRONTEND_PROVIDER_URI}/api/v1/licenses/{license_id}"
 license_status:
     register: true
     renew: true
