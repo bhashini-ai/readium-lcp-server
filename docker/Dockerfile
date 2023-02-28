@@ -49,6 +49,7 @@ ARG CERTIFICATE_PATH=/test/cert/cert-edrlab-test.pem
 ARG CONFIG_PATH=/docker/config.yaml
 ARG PROFILE=basic
 ARG PORT=8989
+ARG SERVER_CMD=/usr/bin/lcpserver
 
 COPY $PRIVATE_KEY_PATH /privkey.pem
 COPY $CERTIFICATE_PATH /cert.pem
@@ -110,4 +111,4 @@ ENV BASE_URL=https://jnanavahini.bhashini.ai/frontend/
 #RUN ldd /usr/bin/frontend
 
 RUN chmod +x /init.sh
-ENTRYPOINT ["/init.sh"]
+ENTRYPOINT ["/init.sh" $SERVER_CMD]

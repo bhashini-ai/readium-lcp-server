@@ -20,30 +20,20 @@ fi
 if [ -d "$1" ] 
 then
 
-  echo "run dockers"
-
-  if [ "$2" != "master" ]
-  then
-    echo "==============="
-    echo "=  LCPSERVER  ="
-    echo "==============="
-    docker build -f docker/lcpserver/Dockerfile -t lcpserver:latest $PLATFORM $1
-
-    echo "==============="
-    echo "=  LSDSERVER  ="
-    echo "==============="
-    docker build -f docker/lsdserver/Dockerfile -t lsdserver:latest $PLATFORM $1
-
-    echo "==============="
-    echo "=  FRONTEND   ="
-    echo "==============="
-    docker build -f docker/frontend/Dockerfile -t frontendtestserver:latest $PLATFORM $1
-  fi
+  echo "==============="
+  echo "=  LCPSERVER  ="
+  echo "==============="
+  docker build -f docker/Dockerfile --build-arg PORT="8989" --build-arg SERVER_CMD="/usr/bin/lcpserver" -t lcpserver:latest $PLATFORM $1
 
   echo "==============="
-  echo "=    MASTER   ="
+  echo "=  LSDSERVER  ="
   echo "==============="
-  docker build -f docker/Dockerfile -t lcpmasterserver:latest $PLATFORM $1
+  docker build -f docker/Dockerfile --build-arg PORT="8990" --build-arg SERVER_CMD="/usr/bin/lsdserver" -t lsdserver:latest $PLATFORM $1
+
+  echo "==============="
+  echo "=  FRONTEND   ="
+  echo "==============="
+  docker build -f docker/Dockerfile --build-arg PORT="8991" --build-arg SERVER_CMD="/usr/bin/frontend" -t frontendtestserver:latest $PLATFORM $1
 
 else
   echo "ERROR arg '$1' doesn't exists"
@@ -51,4 +41,3 @@ else
   exit 1
 
 fi
-
