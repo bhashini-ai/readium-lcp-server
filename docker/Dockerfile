@@ -8,6 +8,7 @@ RUN apk add --no-cache gettext # envsubst
 COPY --from=lcp-builder /lcp/build/bin/lcpserver /usr/bin/lcpserver
 COPY --from=lcp-builder /lcp/build/bin/lsdserver /usr/bin/lsdserver
 COPY --from=lcp-builder /lcp/build/bin/frontend /usr/bin/frontend
+COPY --from=lcp-builder /lcp/build/bin/lcpencrypt /usr/bin/lcpencrypt
 COPY --from=frontend-manage-builder /lcp/build/frontend/manage/. /frontend/manage/.
 RUN ls -als /usr/bin/lcpserver && ls -als /usr/bin/lsdserver && ls -als /usr/bin/frontend && ls -als /frontend/manage/ && ls -als /usr/bin/
 
