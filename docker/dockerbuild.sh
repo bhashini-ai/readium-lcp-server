@@ -23,17 +23,17 @@ then
   echo "==============="
   echo "=  LCPSERVER  ="
   echo "==============="
-  docker build -f docker/Dockerfile --build-arg PORT="8989" --build-arg SERVER_CMD="/usr/bin/lcpserver" -t lcpserver:latest $PLATFORM $1
+  docker build -f docker/Dockerfile --build-arg SERVER_HOST="192.168.0.11" --build-arg PORT="8989" --build-arg SERVER_CMD="/usr/bin/lcpserver" -t lcpserver:latest $PLATFORM $1
 
   echo "==============="
   echo "=  LSDSERVER  ="
   echo "==============="
-  docker build -f docker/Dockerfile --build-arg PORT="8990" --build-arg SERVER_CMD="/usr/bin/lsdserver" -t lsdserver:latest $PLATFORM $1
+  docker build -f docker/Dockerfile --build-arg SERVER_HOST="192.168.0.11" --build-arg PORT="8990" --build-arg SERVER_CMD="/usr/bin/lsdserver" -t lsdserver:latest $PLATFORM $1
 
   echo "==============="
   echo "=  FRONTEND   ="
   echo "==============="
-  docker build -f docker/Dockerfile --build-arg PORT="8991" --build-arg SERVER_CMD="/usr/bin/frontend" -t frontendtestserver:latest $PLATFORM $1
+  docker build -f docker/Dockerfile --build-arg SERVER_HOST="192.168.0.11" --build-arg PORT="8991" --build-arg SERVER_CMD="/usr/bin/frontend" -t frontendtestserver:latest $PLATFORM $1
 
 else
   echo "ERROR arg '$1' doesn't exists"
