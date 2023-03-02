@@ -36,7 +36,7 @@ license:
     links:
         status: "${FRONTEND_PROVIDER_URI}/licenses/{license_id}/status"
         hint: "${FRONTEND_PROVIDER_URI}/frontend/hint.html"
-        publication: "${FRONTEND_PROVIDER_URI}/publications/{publication_id}"
+        publication: "${FRONTEND_PROVIDER_URI}/api/v1/publications/{publication_id}"
 
 
 # LSD Server
