@@ -6,7 +6,7 @@ RUN apk add --no-cache gettext # envsubst
 
 COPY --from=lcp-builder /lcp/build/bin/lcpserver /usr/bin/lcpserver
 COPY --from=lcp-builder /lcp/build/bin/lsdserver /usr/bin/lsdserver
-RUN ls -als /usr/bin/lcpserver && ls -als /usr/bin/lsdserver && ls -als /usr/bin/
+RUN ls -als /usr/bin/lcpserver && ls -als /usr/bin/lsdserver
 
 ARG I18N=/messages
 ARG CONFIG_PATH=/docker/config.yaml
