@@ -8,9 +8,6 @@ then
 fi
 
 mkdir -p $LCP_DATABASE_ROOT_PATH
-mkdir -p $LCP_STORAGE_PATH
-mkdir -p $FRONTEND_MASTER_PATH
-mkdir -p $FRONTEND_ENCRYPTED_PATH
 
 echo "exec $1"
 exec $1

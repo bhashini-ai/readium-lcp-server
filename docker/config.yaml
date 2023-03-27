@@ -1,5 +1,4 @@
-# configuration for lcpserver, lsdserver and frontend.
-# It is meant to be used as a quick-start setup.
+# Configuration for lcpserver and lsdserver
 
 # Shared configuration
 
@@ -34,9 +33,9 @@ certificate:
     private_key: "${PRIVATE_KEY}"
 license:
     links:
-        status: "${FRONTEND_PROVIDER_URI}/licenses/{license_id}/status"
-        hint: "${FRONTEND_PROVIDER_URI}/frontend/hint.html"
-        publication: "${FRONTEND_PROVIDER_URI}/contents/{publication_id}"
+        status: "${PUBLIC_URL}/licenses/{license_id}/status"
+        hint: "${PUBLIC_URL}/static/hint.html"
+        publication: "${PUBLIC_URL}/contents/{publication_id}"
 
 
 # LSD Server
@@ -46,25 +45,10 @@ lsd:
     port: ${LSD_PORT}
     database: "${LSD_DATABASE}"
     auth_file: "${AUTH_FILE}"
-    license_link_url: "${FRONTEND_PROVIDER_URI}/api/v1/licenses/{license_id}"
+    license_link_url: "${PUBLIC_URL}/api/v1/licenses/{license_id}"
 license_status:
     register: true
     renew: true
     return: true
     renting_days: 60
     renew_days: 7
-
-
-# Frontend Server
-
-frontend:
-    public_base_url: ${FRONTEND_BASE_URL}
-    host: "${FRONTEND_HOST}"
-    port: ${FRONTEND_PORT}
-    directory: "${FRONTEND_MANAGE}" # default is readium_lcp_server/frontend/manage .. you can disable it
-    database: "${FRONTEND_DATABASE}"
-    master_repository: "${FRONTEND_MASTER_PATH}"
-    encrypted_repository: "${FRONTEND_ENCRYPTED_PATH}"
-    provider_uri: "${FRONTEND_PROVIDER_URI}"
-    right_print: 10
-    right_copy: 2000
