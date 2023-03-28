@@ -35,7 +35,7 @@ license:
     links:
         status: "${PUBLIC_URL}/licenses/{license_id}/status"
         hint: "${PUBLIC_URL}/static/hint.html"
-        publication: "${PUBLIC_URL}/contents/{publication_id}"
+        publication: "${PUBLIC_URL}/publications/{publication_id}"
 
 
 # LSD Server
@@ -48,7 +48,7 @@ lsd:
     license_link_url: "${PUBLIC_URL}/api/v1/licenses/{license_id}"
 license_status:
     register: true
-    renew: true
-    return: true
+    renew: false
+    return: false
     renting_days: 60
     renew_days: 7
