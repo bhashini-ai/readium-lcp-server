@@ -34,6 +34,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/readium/readium-lcp-server/api"
+	"github.com/readium/readium-lcp-server/config"
 	"github.com/readium/readium-lcp-server/index"
 	apilcp "github.com/readium/readium-lcp-server/lcpserver/api"
 	"github.com/readium/readium-lcp-server/license"
@@ -49,6 +50,7 @@ type Server struct {
 	lst      *license.Store
 	cert     *tls.Certificate
 	source   pack.ManualSource
+	testMode bool
 }
 
 func (s *Server) Store() storage.Store {
@@ -69,6 +71,10 @@ func (s *Server) Certificate() *tls.Certificate {
 
 func (s *Server) Source() *pack.ManualSource {
 	return &s.source
+}
+
+func (s *Server) TestMode() bool {
+	return s.testMode
 }
 
 func New(bindAddr string, readonly bool, idx *index.Index, st *storage.Store, lst *license.Store, cert *tls.Certificate, packager *pack.Packager, basicAuth *auth.BasicAuth) *Server {
@@ -95,46 +101,70 @@ func New(bindAddr string, readonly bool, idx *index.Index, st *storage.Store, ls
 	// Route.Subrouter: http://www.gorillatoolkit.org/pkg/mux#Route.Subrouter
 	// Router.StrictSlash: http://www.gorillatoolkit.org/pkg/mux#Router.StrictSlash
 
-	// methods related to EPUB encrypted content
+	// Ping endpoint
+	s.handleFunc(sr.R, "/ping", apilcp.Ping).Methods("GET")
+
+	// Serve static resources from a configurable directory.
+	// This is used when lcpencrypt sends encrypted resources and cover images to an fs storage,
+	// and we want this http server to provide such resources to the outside world (e.g. PubStore).
+	resourceDir := config.Config.LcpServer.Resources
+	sr.R.PathPrefix("/resources/").Handler(http.StripPrefix("/resources/", http.FileServer(http.Dir(resourceDir))))
+
+	// Methods related to encrypted content
 
 	contentRoutesPathPrefix := "/contents"
 	contentRoutes := sr.R.PathPrefix(contentRoutesPathPrefix).Subrouter().StrictSlash(false)
 
 	s.handleFunc(sr.R, contentRoutesPathPrefix, apilcp.ListContents).Methods("GET")
 
+	// Public routes
 	// get encrypted content by content id (a uuid)
-	s.handleFunc(contentRoutes, "/{content_id}", apilcp.GetContent).Methods("GET")
+	s.handleFunc(contentRoutes, "/{content_id}", apilcp.GetContentFile).Methods("GET")
+
+	// Private routes
 	// get all licenses associated with a given content
 	s.handlePrivateFunc(contentRoutes, "/{content_id}/licenses", apilcp.ListLicensesForContent, basicAuth).Methods("GET")
+	// get content information by content id (a uuid)
+	s.handlePrivateFunc(contentRoutes, "/{content_id}/info", apilcp.GetContentInfo, basicAuth).Methods("GET")
 
 	if !readonly {
-		// put content to the storage
+		// create a publication
 		s.handlePrivateFunc(contentRoutes, "/{content_id}", apilcp.AddContent, basicAuth).Methods("PUT")
+		// delete a publication
+		s.handlePrivateFunc(contentRoutes, "/{content_id}", apilcp.DeleteContent, basicAuth).Methods("DELETE")
 		// generate a license for given content
 		s.handlePrivateFunc(contentRoutes, "/{content_id}/license", apilcp.GenerateLicense, basicAuth).Methods("POST")
 		// deprecated, from a typo in the lcp server spec
 		s.handlePrivateFunc(contentRoutes, "/{content_id}/licenses", apilcp.GenerateLicense, basicAuth).Methods("POST")
-		// generate a licensed publication
-		s.handlePrivateFunc(contentRoutes, "/{content_id}/publication", apilcp.GenerateLicensedPublication, basicAuth).Methods("POST")
+		// generate a protected publication
+		s.handlePrivateFunc(contentRoutes, "/{content_id}/publication", apilcp.GenerateProtectedPublication, basicAuth).Methods("POST")
 		// deprecated, from a typo in the lcp server spec
-		s.handlePrivateFunc(contentRoutes, "/{content_id}/publications", apilcp.GenerateLicensedPublication, basicAuth).Methods("POST")
+		s.handlePrivateFunc(contentRoutes, "/{content_id}/publications", apilcp.GenerateProtectedPublication, basicAuth).Methods("POST")
 	}
 
-	// methods related to licenses
+	// Methods related to licenses
 
 	licenseRoutesPathPrefix := "/licenses"
 	licenseRoutes := sr.R.PathPrefix(licenseRoutesPathPrefix).Subrouter().StrictSlash(false)
+
+	// this is a test route
+	s.handleFunc(licenseRoutes, "/test/{license_id}", apilcp.GetTestLicense).Methods("GET")
 
 	s.handlePrivateFunc(sr.R, licenseRoutesPathPrefix, apilcp.ListLicenses, basicAuth).Methods("GET")
 	// get a license
 	s.handlePrivateFunc(licenseRoutes, "/{license_id}", apilcp.GetLicense, basicAuth).Methods("GET")
 	s.handlePrivateFunc(licenseRoutes, "/{license_id}", apilcp.GetLicense, basicAuth).Methods("POST")
-	// get a licensed publication via a license id
-	s.handlePrivateFunc(licenseRoutes, "/{license_id}/publication", apilcp.GetLicensedPublication, basicAuth).Methods("POST")
+	// get a protected publication via a license id
+	s.handlePrivateFunc(licenseRoutes, "/{license_id}/publication", apilcp.GetProtectedPublication, basicAuth).Methods("POST")
 	if !readonly {
 		// update a license
 		s.handlePrivateFunc(licenseRoutes, "/{license_id}", apilcp.UpdateLicense, basicAuth).Methods("PATCH")
 	}
+
+	// Utility methods
+
+	// License Count endpoint
+	s.handlePrivateFunc(sr.R, "/licensecount", apilcp.LicenseCount, basicAuth).Methods("GET")
 
 	s.source.Feed(packager.Incoming)
 	return s

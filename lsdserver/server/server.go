@@ -38,7 +38,7 @@ func (s *Server) GoofyMode() bool {
 	return s.goofyMode
 }
 
-func New(bindAddr string, readonly bool, complianceMode bool, goofyMode bool, lst *licensestatuses.LicenseStatuses, trns *transactions.Transactions, basicAuth *auth.BasicAuth) *Server {
+func New(bindAddr string, readonly bool, goofyMode bool, lst *licensestatuses.LicenseStatuses, trns *transactions.Transactions, basicAuth *auth.BasicAuth) *Server {
 
 	sr := api.CreateServerRouter("")
 
@@ -60,6 +60,9 @@ func New(bindAddr string, readonly bool, complianceMode bool, goofyMode bool, ls
 	// Route.Subrouter: http://www.gorillatoolkit.org/pkg/mux#Route.Subrouter
 	// Router.StrictSlash: http://www.gorillatoolkit.org/pkg/mux#Router.StrictSlash
 
+	// Ping endpoint
+	s.handleFunc(sr.R, "/ping", apilsd.Ping).Methods("GET")
+
 	licenseRoutesPathPrefix := "/licenses"
 	licenseRoutes := sr.R.PathPrefix(licenseRoutesPathPrefix).Subrouter().StrictSlash(false)
 
@@ -68,20 +71,22 @@ func New(bindAddr string, readonly bool, complianceMode bool, goofyMode bool, ls
 	s.handleFunc(licenseRoutes, "/{key}/status", apilsd.GetLicenseStatusDocument).Methods("GET")
 	s.handleFunc(licenseRoutes, "/{key}", apilsd.GetFreshLicense).Methods("GET")
 
-	if complianceMode {
-		s.handleFunc(sr.R, "/compliancetest", apilsd.AddLogToFile).Methods("POST")
-	}
-
 	s.handlePrivateFunc(licenseRoutes, "/{key}/registered", apilsd.ListRegisteredDevices, basicAuth).Methods("GET")
 	if !readonly {
 		s.handleFunc(licenseRoutes, "/{key}/register", apilsd.RegisterDevice).Methods("POST")
 		s.handleFunc(licenseRoutes, "/{key}/return", apilsd.LendingReturn).Methods("PUT")
 		s.handleFunc(licenseRoutes, "/{key}/renew", apilsd.LendingRenewal).Methods("PUT")
 		s.handlePrivateFunc(licenseRoutes, "/{key}/status", apilsd.LendingCancellation, basicAuth).Methods("PATCH")
+		s.handlePrivateFunc(licenseRoutes, "/{key}/extend", apilsd.ExtendSubscription, basicAuth).Methods("PUT")
 
 		s.handlePrivateFunc(sr.R, "/licenses", apilsd.CreateLicenseStatusDocument, basicAuth).Methods("PUT")
 		s.handlePrivateFunc(licenseRoutes, "/", apilsd.CreateLicenseStatusDocument, basicAuth).Methods("PUT")
 	}
+
+	// Utility methods
+
+	// License Count endpoint
+	s.handlePrivateFunc(sr.R, "/licensecount", apilsd.LicenseCount, basicAuth).Methods("GET")
 
 	return s
 }

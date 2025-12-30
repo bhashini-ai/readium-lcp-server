@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"github.com/readium/readium-lcp-server/config"
+	"github.com/readium/readium-lcp-server/dbutils"
 )
 
 // ErrNotFound signals content not found
@@ -20,16 +21,17 @@ type Index interface {
 	Get(id string) (Content, error)
 	Add(c Content) error
 	Update(c Content) error
+	Delete(id string) error
 	List() func() (Content, error)
 }
 
 // Content represents an encrypted resource
 type Content struct {
 	ID            string `json:"id"`
-	EncryptionKey []byte `json:"-"`
+	EncryptionKey []byte `json:"key,omitempty"` // warning, sensitive info
 	Location      string `json:"location"`
-	Length        int64  `json:"length"` //not exported in license spec?
-	Sha256        string `json:"sha256"` //not exported in license spec?
+	Length        int64  `json:"length"`
+	Sha256        string `json:"sha256"`
 	Type          string `json:"type"`
 }
 
@@ -52,16 +54,48 @@ func (i dbIndex) Get(id string) (Content, error) {
 
 // Add inserts a record
 func (i dbIndex) Add(c Content) error {
-	_, err := i.db.Exec("INSERT INTO content (id,encryption_key,location,length,sha256,type) VALUES (?, ?, ?, ?, ?, ?)",
-		c.ID, c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type)
-	return err
+	driver, _ := config.GetDatabase(config.Config.LcpServer.Database)
+
+	if driver == "postgres" {
+		_, err := i.db.Exec(dbutils.GetParamQuery(config.Config.LcpServer.Database, "INSERT INTO content (id,encryption_key,location,length,sha256,type) VALUES (?, ?::bytea, ?, ?, ?, ?)"),
+			c.ID, c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type)
+		return err
+
+	} else {
+		_, err := i.db.Exec("INSERT INTO content (id,encryption_key,location,length,sha256,type) VALUES (?, ?, ?, ?, ?, ?)",
+			c.ID, c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type)
+		return err
+	}
+
 }
 
 // Update updates a record
 func (i dbIndex) Update(c Content) error {
-	_, err := i.db.Exec("UPDATE content SET encryption_key=? , location=?, length=?, sha256=?, type=? WHERE id=?",
-		c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type, c.ID)
-	return err
+	driver, _ := config.GetDatabase(config.Config.LcpServer.Database)
+
+	if driver == "postgres" {
+		_, err := i.db.Exec(dbutils.GetParamQuery(config.Config.LcpServer.Database, "UPDATE content SET encryption_key=?::bytea , location=?, length=?, sha256=?, type=? WHERE id=?"),
+			c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type, c.ID)
+		return err
+	} else {
+		_, err := i.db.Exec("UPDATE content SET encryption_key=? , location=?, length=?, sha256=?, type=? WHERE id=?",
+			c.EncryptionKey, c.Location, c.Length, c.Sha256, c.Type, c.ID)
+		return err
+	}
+
+}
+
+// Delete deletes a record
+func (i dbIndex) Delete(id string) error {
+	driver, _ := config.GetDatabase(config.Config.LcpServer.Database)
+
+	if driver == "postgres" {
+		_, err := i.db.Exec(dbutils.GetParamQuery(config.Config.LcpServer.Database, "DELETE FROM content WHERE id=?"), id)
+		return err
+	} else {
+		_, err := i.db.Exec("DELETE FROM content WHERE id=?", id)
+		return err
+	}
 }
 
 // List lists rows
@@ -97,7 +131,7 @@ func Open(db *sql.DB) (i Index, err error) {
 	}
 
 	var dbGetByID *sql.Stmt
-	dbGetByID, err = db.Prepare("SELECT id,encryption_key,location,length,sha256,type FROM content WHERE id = ?")
+	dbGetByID, err = db.Prepare(dbutils.GetParamQuery(config.Config.LcpServer.Database, "SELECT id,encryption_key,location,length,sha256,type FROM content WHERE id = ?"))
 	if err != nil {
 		return
 	}

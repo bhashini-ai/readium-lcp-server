@@ -6,6 +6,7 @@ package staticapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -139,7 +140,7 @@ func CheckPublicationByTitle(w http.ResponseWriter, r *http.Request, s IServer) 
 	}
 }
 
-//DecodeJSONPublication transforms a json string to a User struct
+// DecodeJSONPublication transforms a json string to a User struct
 func DecodeJSONPublication(r *http.Request) (webpublication.Publication, error) {
 
 	var dec *json.Decoder
@@ -198,12 +199,17 @@ func UploadPublication(w http.ResponseWriter, r *http.Request, s IServer) {
 	// get the input file extension (will be used to select the proper encryption process)
 	extension := filepath.Ext(header.Filename)
 
-	err = s.PublicationAPI().Upload(file, extension, pub)
+	err = s.PublicationAPI().Upload(file, extension, &pub)
+
 	if err != nil {
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	w.Header().Add("Content-Type", "application/json")
+
+	res := fmt.Sprintf("{\"id\":\"%s\"}", pub.UUID)
+	w.Write([]byte(res))
 }
 
 // UpdatePublication updates an identified publication (id) in the database

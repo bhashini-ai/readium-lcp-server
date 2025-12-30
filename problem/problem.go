@@ -1,27 +1,6 @@
-// Copyright (c) 2016 Readium Foundation
-//
-// Redistribution and use in source and binary forms, with or without modification,
-// are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice, this
-//    list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright notice,
-//    this list of conditions and the following disclaimer in the documentation and/or
-//    other materials provided with the distribution.
-// 3. Neither the name of the organization nor the names of its contributors may be
-//    used to endorse or promote products derived from this software without specific
-//    prior written permission
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-// ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-// ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright 2020 Readium Foundation. All rights reserved.
+// Use of this source code is governed by a BSD-style license
+// that can be found in the LICENSE file exposed on Github (readium) in the project repository.
 
 package problem
 
@@ -36,10 +15,6 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
-
-	"github.com/technoweenie/grohl"
-
-	"github.com/readium/readium-lcp-server/localization"
 )
 
 const (
@@ -55,6 +30,7 @@ type Problem struct {
 	Instance string `json:"instance,omitempty"`
 }
 
+// Problem types
 const ERROR_BASE_URL = "http://readium.org/license-status-document/error/"
 const LICENSE_NOT_FOUND = ERROR_BASE_URL + "notfound"
 const SERVER_INTERNAL_ERROR = ERROR_BASE_URL + "server"
@@ -68,7 +44,6 @@ const CANCEL_BAD_REQUEST = ERROR_BASE_URL + "cancel"
 const FILTER_BAD_REQUEST = ERROR_BASE_URL + "filter"
 
 func Error(w http.ResponseWriter, r *http.Request, problem Problem, status int) {
-	acceptLanguages := r.Header.Get("Accept-Language")
 
 	w.Header().Set("Content-Type", ContentType_PROBLEM_JSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -82,13 +57,8 @@ func Error(w http.ResponseWriter, r *http.Request, problem Problem, status int) 
 		problem.Type = SERVER_INTERNAL_ERROR
 	}
 
-	if problem.Title == "" { // Title matches http status by default
-		localization.LocalizeMessage(acceptLanguages, &problem.Title, http.StatusText(status))
-	} else {
-		localization.LocalizeMessage(acceptLanguages, &problem.Title, problem.Title)
-	}
-	if problem.Detail != "" {
-		localization.LocalizeMessage(acceptLanguages, &problem.Detail, problem.Detail)
+	if problem.Title == "" { // Title (required) matches http status by default
+		problem.Title = http.StatusText(status)
 	}
 
 	jsonError, e := json.Marshal(problem)
@@ -99,8 +69,6 @@ func Error(w http.ResponseWriter, r *http.Request, problem Problem, status int) 
 
 	// debug only
 	//PrintStack()
-
-	log.Print(string(jsonError))
 }
 
 func PrintStack() {
@@ -121,27 +89,7 @@ func PrintStack() {
 	log.Print("####################")
 }
 
+// NotFoundHandler handles 404 API errors
 func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
-	grohl.Log(grohl.Data{"method": r.Method, "path": r.URL.Path, "status": "404"})
-	var problem Problem
-	problem.Type = LICENSE_NOT_FOUND
-	problem.Title = "Failed to find the license ID"
-	Error(w, r, problem, http.StatusNotFound)
-}
-
-func PanicReport(err interface{}) {
-	switch t := err.(type) {
-	case error:
-		errorr, found := err.(error)
-		if found { // should always be true
-			grohl.Log(grohl.Data{"panic recovery (error)": errorr.Error()})
-		}
-	case string:
-		errorr, found := err.(string)
-		if found { // should always be true
-			grohl.Log(grohl.Data{"panic recovery (string)": errorr})
-		}
-	default:
-		grohl.Log(grohl.Data{"panic recovery (other type)": t})
-	}
+	Error(w, r, Problem{Detail: r.URL.String()}, http.StatusNotFound)
 }

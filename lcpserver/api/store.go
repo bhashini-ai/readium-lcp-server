@@ -10,16 +10,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/gorilla/mux"
 
 	"github.com/readium/readium-lcp-server/api"
 	"github.com/readium/readium-lcp-server/index"
 	"github.com/readium/readium-lcp-server/license"
+	"github.com/readium/readium-lcp-server/logging"
 	"github.com/readium/readium-lcp-server/pack"
 	"github.com/readium/readium-lcp-server/problem"
 	"github.com/readium/readium-lcp-server/storage"
@@ -34,8 +36,8 @@ type Server interface {
 	Source() *pack.ManualSource
 }
 
-// LcpPublication is used for communication with the License Server
-type LcpPublication struct {
+// Encrypted is used for communication with the License Server
+type Encrypted struct {
 	ContentID   string `json:"content-id"`
 	ContentKey  []byte `json:"content-encryption-key"`
 	StorageMode int    `json:"storage-mode"`
@@ -54,7 +56,7 @@ const (
 
 func writeRequestFileToTemp(r io.Reader) (int64, *os.File, error) {
 	dir := os.TempDir()
-	file, err := ioutil.TempFile(dir, "readium-lcp")
+	file, err := os.CreateTemp(dir, "readium-lcp")
 	if err != nil {
 		return 0, file, err
 	}
@@ -107,8 +109,8 @@ func StoreContent(w http.ResponseWriter, r *http.Request, s Server) {
 
 // AddContent adds content to the storage
 // lcp spec : store data resulting from an external encryption
-// PUT method with PAYLOAD : LcpPublication in json format
-// This method adds the input encrypted file in a store
+// PUT method with PAYLOAD : encrypted publication in json format
+// This method adds an encrypted file to a store
 // and adds the corresponding decryption key to the database.
 // The content_id is taken from  the url.
 // The input file is then deleted.
@@ -117,8 +119,8 @@ func AddContent(w http.ResponseWriter, r *http.Request, s Server) {
 	// parse the json payload
 	vars := mux.Vars(r)
 	decoder := json.NewDecoder(r.Body)
-	var publication LcpPublication
-	err := decoder.Decode(&publication)
+	var encrypted Encrypted
+	err := decoder.Decode(&encrypted)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
@@ -129,11 +131,14 @@ func AddContent(w http.ResponseWriter, r *http.Request, s Server) {
 		return
 	}
 
-	// if the encrypted publication has not been stored yet
-	if publication.StorageMode == Storage_none {
+	// add a log
+	logging.Print("Add publication " + contentID)
+
+	// if the encrypted publication has not been already stored by lcpencrypt
+	if encrypted.StorageMode == Storage_none {
 
 		// open the encrypted file, use its full path
-		file, err := getAndOpenFile(publication.Output)
+		file, err := getAndOpenFile(encrypted.Output)
 		if err != nil {
 			problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusBadRequest)
 			return
@@ -147,31 +152,40 @@ func AddContent(w http.ResponseWriter, r *http.Request, s Server) {
 			problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusBadRequest)
 			return
 		}
+		log.Printf("File %s moved to storage ", encrypted.Output)
 	}
 
 	// insert a row in the database if the content id does not already exist
-	// or update the database with a new content key and file location if the content id already exists
+	// or update the database with new information if the content id already exists
 	var c index.Content
 	c, err = s.Index().Get(contentID)
-	c.EncryptionKey = publication.ContentKey
+	// err checked later ...
+	c.EncryptionKey = encrypted.ContentKey
 	// the Location field contains either the file name (useful during download)
-	// or the storage URL of the publication, depending the storage mode.
-	if publication.StorageMode != Storage_none {
-		c.Location = publication.Output
+	// or the storage URL of the encrypted, depending the storage mode.
+	if encrypted.StorageMode != Storage_none {
+		c.Location = encrypted.Output
 	} else {
-		c.Location = publication.FileName
+		c.Location = encrypted.FileName
 	}
-	c.Length = publication.Size
-	c.Sha256 = publication.Checksum
-	c.Type = publication.ContentType
+	c.Length = encrypted.Size
+	c.Sha256 = encrypted.Checksum
+	c.Type = encrypted.ContentType
 
 	code := http.StatusCreated
 	if err == index.ErrNotFound { //insert into database
 		c.ID = contentID
 		err = s.Index().Add(c)
-	} else { //update the encryption key for c.ID = publication.ContentID
+		// the content id was found in the database
+	} else { //update the encryption key for c.ID = encrypted.ContentID
 		err = s.Index().Update(c)
 		code = http.StatusOK
+
+		if err == nil {
+			log.Println("Update all license timestamps associated with this publication")
+			err = s.Licenses().TouchByContentID(contentID) // update all licenses update timestamps
+		}
+
 	}
 	if err != nil { //if db not updated
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
@@ -188,9 +202,14 @@ func ListContents(w http.ResponseWriter, r *http.Request, s Server) {
 	fn := s.Index().List()
 	contents := make([]index.Content, 0)
 
+	var razkey []byte // in a list, we don't return the encryption key.
 	for it, err := fn(); err == nil; it, err = fn() {
+		it.EncryptionKey = razkey
 		contents = append(contents, it)
 	}
+
+	// add a log
+	logging.Print("List publications, total " + strconv.Itoa(len(contents)))
 
 	w.Header().Set("Content-Type", api.ContentType_JSON)
 	enc := json.NewEncoder(w)
@@ -202,13 +221,52 @@ func ListContents(w http.ResponseWriter, r *http.Request, s Server) {
 
 }
 
-// GetContent fetches and returns an encrypted content file
+// GetContentInfo returns information about the encrypted content,
+// especially the encryption key.
+// Used by the encryption utility when the file to encrypt is an update of an existing encrypted publication.
+func GetContentInfo(w http.ResponseWriter, r *http.Request, s Server) {
+	// get the content id from the calling url
+	vars := mux.Vars(r)
+	contentID := vars["content_id"]
+
+	// add a log
+	logging.Print("Get content info " + contentID)
+
+	// get the info
+	content, err := s.Index().Get(contentID)
+	if err != nil { //item probably not found
+		if err == index.ErrNotFound {
+			problem.Error(w, r, problem.Problem{Detail: "Index:" + err.Error(), Instance: contentID}, http.StatusNotFound)
+		} else {
+			problem.Error(w, r, problem.Problem{Detail: "Index:" + err.Error(), Instance: contentID}, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// return the info
+	w.Header().Set("Content-Type", api.ContentType_JSON)
+	enc := json.NewEncoder(w)
+	err = enc.Encode(content)
+	if err != nil {
+		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusBadRequest)
+		return
+	}
+
+}
+
+// GetContentFile fetches and returns an encrypted content file
 // selected by it content id (uuid)
-func GetContent(w http.ResponseWriter, r *http.Request, s Server) {
+// This should be called only if the License Server stores the file.
+// If it is not the case, the file should be fetched from a standard web server
+func GetContentFile(w http.ResponseWriter, r *http.Request, s Server) {
 
 	// get the content id from the calling url
 	vars := mux.Vars(r)
 	contentID := vars["content_id"]
+
+	// add a log
+	logging.Print("Fetch content " + contentID)
+
 	content, err := s.Index().Get(contentID)
 	if err != nil { //item probably not found
 		if err == index.ErrNotFound {
@@ -231,23 +289,59 @@ func GetContent(w http.ResponseWriter, r *http.Request, s Server) {
 	}
 	// opens the file
 	contentReadCloser, err := item.Contents()
-	if err != nil {
-		problem.Error(w, r, problem.Problem{Detail: "File:" + err.Error(), Instance: contentID}, http.StatusInternalServerError)
-		return
-	}
-
-	defer contentReadCloser.Close()
 	if err != nil { //file probably not found
 		problem.Error(w, r, problem.Problem{Detail: err.Error(), Instance: contentID}, http.StatusBadRequest)
 		return
 	}
+
+	defer contentReadCloser.Close()
+
 	// set headers
-	w.Header().Set("Content-Disposition", "attachment; filename="+content.Location)
+	// If this function is called for a file stored by the encrypting tool, we have to provide a sensible
+	// Content-Disposition header, to be used as file name after download.
+	hasPubLink, err := isURL(content.Location)
+	if err != nil {
+		problem.Error(w, r, problem.Problem{Detail: "Content Location:" + err.Error(), Instance: contentID}, http.StatusInternalServerError)
+		return
+	}
+	var filename string
+	if hasPubLink {
+		// we have not stored the original file name, therefore we use the content id.
+		filename = content.ID
+	} else {
+		// in the initial version of the server, the filename was in this field.
+		filename = content.Location
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.Header().Set("Content-Type", content.Type)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", content.Length))
 
 	// returns the content of the file to the caller
 	io.Copy(w, contentReadCloser)
+}
+
+// DeleteContent deletes a record
+func DeleteContent(w http.ResponseWriter, r *http.Request, s Server) {
+
+	// get the content id from the calling url
+	vars := mux.Vars(r)
+	contentID := vars["content_id"]
+
+	// add a log
+	logging.Print("Delete publication " + contentID)
+
+	err := s.Index().Delete(contentID)
+	if err != nil { //item probably not found
+		if err == index.ErrNotFound {
+			problem.Error(w, r, problem.Problem{Detail: "Index:" + err.Error(), Instance: contentID}, http.StatusNotFound)
+		} else {
+			problem.Error(w, r, problem.Problem{Detail: "Index:" + err.Error(), Instance: contentID}, http.StatusInternalServerError)
+		}
+		return
+	}
+	// set the response http code
+	w.WriteHeader(http.StatusOK)
+
 }
 
 // getAndOpenFile opens a file from a path, or downloads then opens it if its location is a URL
@@ -266,7 +360,7 @@ func getAndOpenFile(filePathOrURL string) (*os.File, error) {
 }
 
 func downloadAndOpenFile(url string) (*os.File, error) {
-	file, _ := ioutil.TempFile("", "")
+	file, _ := os.CreateTemp("", "")
 	fileName := file.Name()
 
 	err := downloadFile(url, fileName)
@@ -310,4 +404,9 @@ func downloadFile(url string, targetFilePath string) error {
 	}
 
 	return nil
+}
+
+// Ping is a simple health check
+func Ping(w http.ResponseWriter, r *http.Request, s Server) {
+	w.WriteHeader(http.StatusOK)
 }

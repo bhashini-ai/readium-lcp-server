@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"io"
 	"log"
-	"net/url"
 	"strings"
 
 	"github.com/readium/readium-lcp-server/crypto"
@@ -76,6 +75,10 @@ func Process(encrypter crypto.Encrypter, contentKey string, reader PackageReader
 	// loop through the resources of the source package, encrypt them if needed, copy them into the dest package
 	for _, resource := range reader.Resources() {
 		if !resource.Encrypted() && resource.CanBeEncrypted() {
+			if resource.(*rwpResource).file == nil {
+				log.Println("Error encrypting a file: Nil file name")
+				return
+			}
 			err = encryptRPFResource(compressor, encrypter, key, resource, writer)
 			if err != nil {
 				log.Println("Error encrypting ", resource.Path(), ": ", err.Error())
@@ -124,7 +127,7 @@ func Do(encrypter crypto.Encrypter, contentKey string, ep epub.Epub, w io.Writer
 
 	for _, res := range ep.Resource {
 		if _, alreadyEncrypted := ep.Encryption.DataForFile(res.Path); !alreadyEncrypted && canEncrypt(res, ep) {
-			compress := mustCompressBeforeEncryption(*res, ep)
+			compress := mustCompressBeforeEncryption(*res)
 			// encrypt the resource after optionally compressing it
 			err = encryptEPUBResource(compressor, compress, encrypter, key, ep.Encryption, res, ew)
 			if err != nil {
@@ -155,7 +158,7 @@ func Do(encrypter crypto.Encrypter, contentKey string, ep epub.Epub, w io.Writer
 // mustCompressBeforeEncryption checks is a resource must be compressed before encryption.
 // We don't want to compress files if that might cause streaming (byte range requests) issues.
 // The test is applied on the resource media-type; image, video, audio, pdf are stored without compression.
-func mustCompressBeforeEncryption(file epub.Resource, ep epub.Epub) bool {
+func mustCompressBeforeEncryption(file epub.Resource) bool {
 
 	mimetype := file.ContentType
 
@@ -226,11 +229,8 @@ func encryptEPUBResource(compressor *flate.Writer, compress bool, encrypter cryp
 	data.KeyInfo.RetrievalMethod.URI = "license.lcpl#/encryption/content_key"
 	data.KeyInfo.RetrievalMethod.Type = "http://readium.org/2014/01/lcp#EncryptedContentKey"
 
-	uri, err := url.Parse(file.Path)
-	if err != nil {
-		return err
-	}
-	data.CipherData.CipherReference.URI = xmlenc.URI(uri.EscapedPath())
+	// escape the path before using it as a uri
+	data.CipherData.CipherReference.URI = xmlenc.URI(xmlenc.ResourcePathEscape(file.Path))
 
 	// declare to the reading software that the content is compressed before encryption
 	method := NoCompression

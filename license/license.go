@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -111,32 +112,35 @@ const (
 	V1Profile
 )
 
-func (profile EncryptionProfile) String() string {
+// isValidPositiveDecimal checks if a string represents a positive decimal numeral with one digit before and after the separator
+func isValidPositiveDecimal(s string) bool {
+	regex := regexp.MustCompile(`^[1-9]\.\d$`)
+	return regex.MatchString(s)
+}
 
+// licenseProfileURL converts the profile token in the config to a standard profile URL
+func licenseProfileURL() string {
+	// possible profiles are basic, 1.0 and other decimal values
+	// "2.x" is not processable in this version, because the api of user_key_prod would have to be modified,
+	// and providers must be able to recompile with the original version.
 	var profileURL string
-	switch profile {
-	case BasicProfile:
+	if config.Config.Profile == "basic" {
 		profileURL = "http://readium.org/lcp/basic-profile"
-	case V1Profile:
-		profileURL = "http://readium.org/lcp/profile-1.0"
-	default:
+	} else if isValidPositiveDecimal(config.Config.Profile) {
+		profileURL = "http://readium.org/lcp/profile-" + config.Config.Profile
+	} else {
 		profileURL = "unknown-profile"
 	}
-
 	return profileURL
 }
 
 // SetLicenseProfile sets the license profile from config
-func SetLicenseProfile(l *License) {
-
-	// possible profiles are basic and 1.0
-	var ep EncryptionProfile
-	if config.Config.Profile == "1.0" {
-		ep = V1Profile
-	} else {
-		ep = BasicProfile
+func SetLicenseProfile(l *License) error {
+	l.Encryption.Profile = licenseProfileURL()
+	if l.Encryption.Profile == "unknown-profile" {
+		return errors.New("failed to assign a license profile url")
 	}
-	l.Encryption.Profile = ep.String()
+	return nil
 }
 
 // newUUID generates a random UUID according to RFC 4122
@@ -337,10 +341,19 @@ func encryptKey(encrypter crypto.Encrypter, key []byte, kek []byte) []byte {
 	return out.Bytes()
 }
 
+func remove(sl []string, i int) []string {
+	sl[i] = sl[len(sl)-1]
+	return sl[:len(sl)-1]
+}
+
 func encryptFields(encrypter crypto.Encrypter, l *License, key []byte) error {
-	for _, toEncrypt := range l.User.Encrypted {
+	for i, toEncrypt := range l.User.Encrypted {
 		var out bytes.Buffer
 		field := getField(&l.User, toEncrypt)
+		if !field.IsValid() {
+			l.User.Encrypted = remove(l.User.Encrypted, i)
+			break
+		}
 		err := encrypter.Encrypt(key[:], bytes.NewBufferString(field.String()), &out)
 		if err != nil {
 			return err

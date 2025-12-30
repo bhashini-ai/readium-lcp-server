@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 
 	"github.com/readium/readium-lcp-server/config"
+	"github.com/readium/readium-lcp-server/dbutils"
 	"github.com/readium/readium-lcp-server/encrypt"
-	apilcp "github.com/readium/readium-lcp-server/lcpserver/api"
 )
 
 // Publication status
@@ -38,7 +38,7 @@ type WebPublication interface {
 	Update(publication Publication) error
 	Delete(id int64) error
 	List(page int, pageNum int) func() (Publication, error)
-	Upload(multipart.File, string, Publication) error
+	Upload(multipart.File, string, *Publication) error
 	CheckByTitle(title string) (int64, error)
 }
 
@@ -102,34 +102,36 @@ func (pubManager PublicationManager) CheckByTitle(title string) (int64, error) {
 
 // encryptPublication encrypts a publication, notifies the License Server
 // and inserts a record in the database.
-func encryptPublication(inputPath string, pub Publication, pubManager PublicationManager) error {
-
-	var notification *apilcp.LcpPublication
+func encryptPublication(inputPath string, pub *Publication, pubManager PublicationManager) error {
 
 	// encrypt the publication
 	// FIXME: work on a direct storage of the output file.
 	outputRepo := config.Config.FrontendServer.EncryptedRepository
 	empty := ""
-	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty)
+	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty, false, false)
 	if err != nil {
 		return err
 	}
 
-	// send a notification to the License server
-	err = encrypt.NotifyLcpServer(
-		notification,
+	// send a notification to the License Server v1
+	err = encrypt.NotifyLCPServer(
+		*notification,
+		"", /// no provider uri
 		config.Config.LcpServer.PublicBaseUrl,
+		false,
 		config.Config.LcpUpdateAuth.Username,
-		config.Config.LcpUpdateAuth.Password)
+		config.Config.LcpUpdateAuth.Password,
+		false, false) // non verbose, don't generate an alternative id
 	if err != nil {
 		return err
 	}
 
 	// store the new publication in the db
 	// the publication uuid is the lcp db content id.
-	pub.UUID = notification.ContentID
+	pub.UUID = notification.UUID
 	pub.Status = StatusOk
-	_, err = pubManager.db.Exec("INSERT INTO publication (uuid, title, status) VALUES ( ?, ?, ?)",
+	_, err = pubManager.db.Exec(dbutils.GetParamQuery(config.Config.FrontendServer.Database,
+		"INSERT INTO publication (uuid, title, status) VALUES ( ?, ?, ?)"),
 		pub.UUID, pub.Title, pub.Status)
 
 	return err
@@ -149,7 +151,7 @@ func (pubManager PublicationManager) Add(pub Publication) error {
 	}
 
 	// encrypt the publication and send a notification to the License server
-	err := encryptPublication(inputPath, pub, pubManager)
+	err := encryptPublication(inputPath, &pub, pubManager)
 	if err != nil {
 		return err
 	}
@@ -161,7 +163,7 @@ func (pubManager PublicationManager) Add(pub Publication) error {
 
 // Upload creates a new publication, named after a POST form parameter.
 // Encrypts a master File and notifies the License server
-func (pubManager PublicationManager) Upload(file multipart.File, extension string, pub Publication) error {
+func (pubManager PublicationManager) Upload(file multipart.File, extension string, pub *Publication) error {
 
 	// create a temp file in the default directory
 	tmpfile, err := ioutil.TempFile("", "uploaded-*"+extension)
@@ -188,7 +190,8 @@ func (pubManager PublicationManager) Upload(file multipart.File, extension strin
 // Only the title is updated
 func (pubManager PublicationManager) Update(pub Publication) error {
 
-	_, err := pubManager.db.Exec("UPDATE publication SET title=?, status=? WHERE id = ?",
+	_, err := pubManager.db.Exec(dbutils.GetParamQuery(config.Config.FrontendServer.Database,
+		"UPDATE publication SET title=?, status=? WHERE id = ?"),
 		pub.Title, pub.Status, pub.ID)
 	return err
 }
@@ -204,13 +207,13 @@ func (pubManager PublicationManager) Delete(id int64) error {
 	}
 
 	// delete all purchases relative to this publication
-	_, err = pubManager.db.Exec(`DELETE FROM purchase WHERE publication_id=?`, id)
+	_, err = pubManager.db.Exec(dbutils.GetParamQuery(config.Config.FrontendServer.Database, `DELETE FROM purchase WHERE publication_id=?`), id)
 	if err != nil {
 		return err
 	}
 
 	// delete the publication
-	_, err = pubManager.db.Exec("DELETE FROM publication WHERE id = ?", id)
+	_, err = pubManager.db.Exec(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "DELETE FROM publication WHERE id = ?"), id)
 	return err
 }
 
@@ -259,25 +262,25 @@ func Init(db *sql.DB) (i WebPublication, err error) {
 	}
 
 	var dbGetByID *sql.Stmt
-	dbGetByID, err = db.Prepare("SELECT id, uuid, title, status FROM publication WHERE id = ?")
+	dbGetByID, err = db.Prepare(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "SELECT id, uuid, title, status FROM publication WHERE id = ?"))
 	if err != nil {
 		return
 	}
 
 	var dbGetByUUID *sql.Stmt
-	dbGetByUUID, err = db.Prepare("SELECT id, uuid, title, status FROM publication WHERE uuid = ?")
+	dbGetByUUID, err = db.Prepare(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "SELECT id, uuid, title, status FROM publication WHERE uuid = ?"))
 	if err != nil {
 		return
 	}
 
 	var dbCheckByTitle *sql.Stmt
-	dbCheckByTitle, err = db.Prepare("SELECT COUNT(1) FROM publication WHERE title = ?")
+	dbCheckByTitle, err = db.Prepare(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "SELECT COUNT(1) FROM publication WHERE title = ?"))
 	if err != nil {
 		return
 	}
 
 	var dbGetMasterFile *sql.Stmt
-	dbGetMasterFile, err = db.Prepare("SELECT title FROM publication WHERE id = ?")
+	dbGetMasterFile, err = db.Prepare(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "SELECT title FROM publication WHERE id = ?"))
 	if err != nil {
 		return
 	}
@@ -286,7 +289,7 @@ func Init(db *sql.DB) (i WebPublication, err error) {
 	if driver == "mssql" {
 		dbList, err = db.Prepare("SELECT id, uuid, title, status FROM publication ORDER BY id desc OFFSET ? ROWS FETCH NEXT ? ROWS ONLY")
 	} else {
-		dbList, err = db.Prepare("SELECT id, uuid, title, status FROM publication ORDER BY id desc LIMIT ? OFFSET ?")
+		dbList, err = db.Prepare(dbutils.GetParamQuery(config.Config.FrontendServer.Database, "SELECT id, uuid, title, status FROM publication ORDER BY id desc LIMIT ? OFFSET ?"))
 
 	}
 	if err != nil {
