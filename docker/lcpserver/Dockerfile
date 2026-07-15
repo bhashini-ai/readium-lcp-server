@@ -1,9 +1,10 @@
 
-FROM golang:alpine as lcpserver-builder
+FROM golang:1.24.5-alpine as lcpserver-builder
 WORKDIR /lcp
 COPY . /lcp/.
 
 RUN apk add build-base
+ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 RUN make lcpserver
 
 
@@ -22,4 +23,3 @@ EXPOSE ${PORT}
 
 CMD ["/bin/lcpserver"]
 ENTRYPOINT ["/entrypoint.sh", "/tmp/config.yaml"]
-

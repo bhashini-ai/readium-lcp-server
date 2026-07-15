@@ -1,9 +1,10 @@
 
-FROM golang:alpine as lsdserver-builder
+FROM golang:1.24.5-alpine as lsdserver-builder
 WORKDIR /lcp
 COPY . /lcp/.
 
 RUN apk add build-base
+ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 RUN make lsdserver
 
 
@@ -21,4 +22,3 @@ EXPOSE ${PORT}
 
 CMD ["/bin/lsdserver"]
 ENTRYPOINT ["/entrypoint.sh", "/tmp/config.yaml"]
-

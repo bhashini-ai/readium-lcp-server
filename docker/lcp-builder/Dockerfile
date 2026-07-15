@@ -1,5 +1,6 @@
-FROM golang:alpine
-RUN apk add build-base
+FROM golang:1.24.5-alpine
+RUN apk add --no-cache build-base
+ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 
 WORKDIR /lcp
 COPY . /lcp/.
