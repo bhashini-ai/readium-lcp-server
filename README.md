@@ -14,6 +14,9 @@ Using the tools provided in this project you can:
  
 **A detailed documentation is found in the [Wiki pages of the project](../../wiki). You really have to read it before you start testing this application.**
 
+**A new v2 codebase has been developed in the [EDRLab GitHub space, lcp-server repository](https://github.com/edrlab/lcp-server), and this new version has been sufficiently tested to now be ready for production.
+For existing users, moving from LCP Server v1 to v2 is not recommended in 2026. The two codebases are functionally equivalent, but there is no ETL (Extract Transform Load) procedure ready yet.** 
+
 Prerequisites
 =============
 
@@ -59,7 +62,7 @@ lcpencrypt can:
 
 ## [lcpserver]
 
-A License server implements [Readium Licensed Content Protection 1.0](https://readium.org/lcp-specs/releases/lcp/latest).
+A License server implements [Readium Licensed Content Protection](https://readium.org/lcp-specs/releases/lcp/latest).
 
 Its functionalities can only be accessed after client authentication.
 
@@ -70,7 +73,7 @@ Its private functionalities are:
 
 ## [lsdserver]
 
-A Status Server implements [Readium License Status Document 1.0](https://readium.org/lcp-specs/releases/lsd/latest).
+A Status Server implements [Readium License Status Document](https://readium.org/lcp-specs/releases/lsd/latest).
 
 Its public functionalities are:
 * Return a license status document
@@ -136,7 +139,7 @@ git clone https://github.com/readium/readium-lcp-server.git
 
 Then compile the code with: 
 
-```
+```sh
 cd readium-lcp-server
 go build -o $GOPATH/bin ./lcpencrypt
 go build -o $GOPATH/bin ./lcpserver
@@ -144,6 +147,12 @@ go build -o $GOPATH/bin ./lsdserver
 ```
 
 You should now find the generated binaries in $GOPATH/bin (or $GOBIN if this environment variable is set).
+
+Note: on a Linux Alpine server, the addition of the musl tag is required for building lcpserver. 
+
+```sh
+go build -tags musl -o $GOPATH/bin ./lcpencrypt
+```
 
 
 ### On Windows 10
@@ -218,10 +227,12 @@ Here are the details about the configuration properties of each server. In the s
 
 ### License Server
 
-#### profile section
-`profile`: value of the LCP profile; allowed values are:
+#### encryption profile section
+`profile`: value of the LCP encryption profile; allowed values are:
 - `basic`: default value, as described in the Readium LCP specification, used for tests only.
-- `1.0`: the current production profile, maintained by EDRLab.
+- `1.0`: the initial production profile maintained by EDRLab.
+- `2.0` ... `2.9`: the current production profiles maintained by EDRLab. These ten profiles are **peers, not versions** — the trailing digit is an identifier, and `2.9` is **not** newer, stronger, or otherwise preferable to `2.0`. Each license provider picks one so that real-world deployments are spread across all ten. See [EDRLab — LCP Encryption Profiles](https://www.edrlab.org/projects/readium-lcp/encryption-profiles/) for background.
+
 
 #### lcp section
 `lcp`: parameters associated with the License Server.

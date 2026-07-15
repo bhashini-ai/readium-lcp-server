@@ -8,6 +8,7 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"errors"
+	"image"
 	"image/jpeg"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ import (
 // deemed useful for a notified CMS or LCP Server
 type RWPInfo struct {
 	UUID        string
-	NumPages    int // only for PDF-based RWPs
+	NumPages    int   // only for PDF-based RWPs
 	Title       string
 	Date        string
 	Description string
@@ -80,9 +81,8 @@ func (reader *RPFReader) NewWriter(writer io.Writer) (PackageWriter, error) {
 		file.Close()
 	}
 
-	// copy immediately all ancilliary resources from the source manifest
-	// as they will not be encrypted in the current implementation
-	// FIXME: work on the encryption of ancilliary resources (except the W3C Entry Page?).
+	// copy ancillary resources from the source manifest: they will not be encrypted, but will be deflated in the output package..
+	// FIXME: work on the encryption of ancillary resources (except the W3C Entry Page?).
 	for _, manifestResource := range reader.manifest.Resources {
 		sourceFile := files[manifestResource.Href]
 		fw, err := zipWriter.Create(sourceFile.Name)
@@ -317,8 +317,8 @@ func (writer *RPFWriter) NewFile(path string, contentType string, storageMethod 
 
 // MarkAsEncrypted marks a resource as encrypted (with an algorithm), in the writer manifest
 // FIXME: currently only looks into the reading order. Add "alternates", think about adding "resources"
-// FIXME: process resources which are compressed before encryption -> add Compression and OriginalLength properties in this case
-func (writer *RPFWriter) MarkAsEncrypted(path string, originalSize int64, algorithm string) {
+// FIXME: process resources which can be compressed before encryption -> add Compression properties in this case
+func (writer *RPFWriter) MarkAsEncrypted(path string, originalLength int64, algorithm string) {
 
 	for i, resource := range writer.manifest.ReadingOrder {
 		if path == resource.Href {
@@ -328,11 +328,11 @@ func (writer *RPFWriter) MarkAsEncrypted(path string, originalSize int64, algori
 			}
 			writer.manifest.ReadingOrder[i].Properties.Encrypted = &rwpm.Encrypted{
 				Scheme: "http://readium.org/2014/01/lcp",
-				// profile data is not useful and even misleading: the same encryption algorithm applies to basic and 1.0 profiles.
+				// profile data is not useful and even misleading: the same process applies to basic and production profiles.
 				//Profile:   profile.String(),
 				Algorithm: algorithm,
+				OriginalLength: originalLength,
 			}
-
 			break
 		}
 	}
@@ -413,7 +413,7 @@ func BuildRPFFromPDF(inputPath, packagePath, coverPath string, pdfNoMeta bool) (
 	defer f.Close()
 
 	// copy the content of the pdf input file into the zip output, as 'publication.pdf'.
-	// the pdf content is stored compressed so that the encryption performance on Windows is better (!).
+	// the pdf content is deflated in the archive: the encryption performance on Windows is better (!).
 	zipWriter := zip.NewWriter(f)
 	defer zipWriter.Close()
 	writer, err := zipWriter.CreateHeader(&zip.FileHeader{
@@ -434,7 +434,8 @@ func BuildRPFFromPDF(inputPath, packagePath, coverPath string, pdfNoMeta bool) (
 		return rwpInfo, err
 	}
 
-	// extract metadata , and cover from the PDF
+	// extract metadata and cover from the PDF
+	// the cover will be inserted in the target file even if other metadata are left unused.
 	rwpInfo, err = extractRWPInfo(inputPath, coverPath)
 	if err != nil {
 		log.Printf("Error extracting the PDF cover, %s", err.Error())
@@ -468,24 +469,29 @@ func BuildRPFFromPDF(inputPath, packagePath, coverPath string, pdfNoMeta bool) (
 	// create simple manifest object
 	var manifest rwpm.Publication
 
-	manifest.Context.Add("https://readium.org/webpub-manifest/context.jsonld")
+	manifest.Context = "https://readium.org/webpub-manifest/context.jsonld"
 	manifest.Metadata.Type = "http://schema.org/Book"
 	manifest.Metadata.ConformsTo = "https://readium.org/webpub-manifest/profiles/pdf"
 
 	// number of pages is needed to display progress in the reader
 	manifest.Metadata.NumberOfPages = rwpInfo.NumPages
 
+	// the filename will be the default title of the target manifest
+	filename := filepath.Base(inputPath)
+	filename = strings.TrimSuffix(filename, filepath.Ext(filename)) 
+	// remove underscores, hyphens, dots which are frequent in PDF file names
+	filename = strings.ReplaceAll(filename, "_", " ")
+	filename = strings.ReplaceAll(filename, "-", " ")
+	filename = strings.ReplaceAll(filename, ".", " ")
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+			filename = "No Title Available" // fallback
+	}
+
 	// PDF metadata can be so bad that we may want to ignore them
 	if pdfNoMeta {
 		// we still need a title
-		filename := filepath.Base(inputPath)
-		rwpInfo.Title = strings.TrimSuffix(filename, filepath.Ext(filename)) // default title
-		// remove underscores, hyphens, dots which are frequent in PDF file names
-		rwpInfo.Title = strings.ReplaceAll(rwpInfo.Title, "_", " ")
-		rwpInfo.Title = strings.ReplaceAll(rwpInfo.Title, "-", " ")
-		rwpInfo.Title = strings.ReplaceAll(rwpInfo.Title, ".", " ")
-		rwpInfo.Title = strings.TrimSpace(rwpInfo.Title)
-		manifest.Metadata.Title.Set("und", rwpInfo.Title)
+		manifest.Metadata.Title.Set("und", filename)
 		// add PDF metadata to the manifest
 	} else {
 		// remove underscores, hyphens, stars which are frequent in PDF titles
@@ -494,15 +500,15 @@ func BuildRPFFromPDF(inputPath, packagePath, coverPath string, pdfNoMeta bool) (
 		rwpInfo.Title = strings.ReplaceAll(rwpInfo.Title, "*", " ")
 		rwpInfo.Title = strings.TrimSpace(rwpInfo.Title)
 		if rwpInfo.Title == "" {
-			rwpInfo.Title = "No Title Available" // default title
+			rwpInfo.Title = filename
 		}
 		manifest.Metadata.Title.Set("und", rwpInfo.Title)
-		// there is zero or one author/subject in the PDF metadata
+		// there is zero or one author/description in the PDF metadata
 		if len(rwpInfo.Author) != 0 {
 			manifest.Metadata.Author.AddName(rwpInfo.Author[0])
 		}
-		if len(rwpInfo.Subject) != 0 {
-			manifest.Metadata.Subject.Add(rwpm.Subject{Name: rwpInfo.Subject[0]})
+		if len(rwpInfo.Description) != 0 {
+			manifest.Metadata.Description =rwpInfo.Description
 		}
 	}
 
@@ -542,7 +548,7 @@ func extractRWPInfo(inputPath, coverPath string) (RWPInfo, error) {
 	start := time.Now()
 	defer func() {
 		if coverPath != "" {
-			log.Printf("Extracting the PDF cover took %s", time.Since(start))
+			log.Printf("Extracting the PDF cover and metadata took %s", time.Since(start).Truncate(10 * time.Millisecond))
 		}
 	}()
 
@@ -561,8 +567,9 @@ func extractRWPInfo(inputPath, coverPath string) (RWPInfo, error) {
 		rwpInfo.Author = []string{author}
 	}
 	subject := cleanNulls(metadata["subject"])
+	// in a PDF, this is a brief explanation of the document's core topic or theme.
 	if subject != "" {
-		rwpInfo.Subject = []string{subject}
+		rwpInfo.Description = subject
 	}
 	rwpInfo.NumPages = doc.NumPage()
 
@@ -571,10 +578,11 @@ func extractRWPInfo(inputPath, coverPath string) (RWPInfo, error) {
 		return rwpInfo, nil
 	}
 
-	// get the first page
-	img, err := doc.Image(0)
+	// get the first page as a preview image; if this fails, we will not have a cover but the RWP will still be valid, so we return the error as nil
+	//img, err := doc.ImageDPI(0, 72.0)
+	img, err := renderPreview(doc, 0, 1200.0)
 	if err != nil {
-		return rwpInfo, nil
+		return rwpInfo, err
 	}
 
 	// save the image as a JPG file
@@ -595,6 +603,37 @@ func extractRWPInfo(inputPath, coverPath string) (RWPInfo, error) {
 // cleanNulls removes null characters from a string
 func cleanNulls(s string) string {
 	return strings.ReplaceAll(s, string([]byte{0}), "")
+}
+
+func renderPreview(doc *fitz.Document, pageNum int, maxSide float64) (*image.RGBA, error) {
+	// Get base dimensions at 72 DPI (PDF points)
+	rect, err := doc.Bound(pageNum)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert rectangle dimensions to float64 for precision
+	widthPoints := float64(rect.Dx())
+	heightPoints := float64(rect.Dy())
+
+	// Determine the longer side for ratio calculation
+	largerSide := widthPoints
+	if heightPoints > widthPoints {
+		largerSide = heightPoints
+	}
+
+	// Calculate target DPI to match maxSide (e.g., 1024px)
+	// Formula: targetDPI = (TargetPixels / PDFPoints) * 72
+	targetDPI := (maxSide / largerSide) * 72.0
+
+	// Security: Cap DPI at 300 to avoid upscaling tiny PDFs
+	if targetDPI > 300.0 {
+		targetDPI = 300.0
+	}
+
+	// Perform rendering at the calculated DPI
+	// This will result in an image where the longest side is exactly maxSide pixels
+	return doc.ImageDPI(pageNum, targetDPI)
 }
 
 // ExtractCoverFromRPF extracts the cover image from a Readium Package and saves it to outputRepo

@@ -12,7 +12,7 @@ import (
 
 // Publication = Readium manifest
 type Publication struct {
-	Context      MultiString `json:"@context,omitempty"`
+	Context      string `json:"@context,omitempty"`
 	Metadata     Metadata    `json:"metadata"`
 	Links        []Link      `json:"links,omitempty"`
 	ReadingOrder []Link      `json:"readingOrder,omitempty"`
@@ -38,6 +38,7 @@ type Link struct {
 	Rel        MultiString `json:"rel,omitempty"`
 	Height     int         `json:"height,omitempty"`
 	Width      int         `json:"width,omitempty"`
+	Length		 int64       `json:"length,omitempty"`
 	Duration   float32     `json:"duration,omitempty"`
 	Bitrate    int         `json:"bitrate,omitempty"`
 	Properties *Properties `json:"properties,omitempty"`

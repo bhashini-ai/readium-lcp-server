@@ -51,7 +51,7 @@ type Publication struct {
 
 // ProcessEncryption encrypts a publication
 // inputPath must contain a processable file extension.
-func ProcessEncryption(contentID, contentKey, inputPath, tempRepo, outputRepo, storageRepo, storageURL, storageFilename string, extractCover, pdfNoMeta bool) (*Publication, error) {
+func ProcessEncryption(contentID, contentKey, inputPath, tempRepo, outputRepo, storageRepo, storageURL, storageFilename string, extractCover, pdfNoMeta bool, s3opts S3Options) (*Publication, error) {
 
 	if inputPath == "" {
 		return nil, errors.New("ProcessEncryption, missing input path")
@@ -62,8 +62,6 @@ func ProcessEncryption(contentID, contentKey, inputPath, tempRepo, outputRepo, s
 	pub.OutputRepo = outputRepo
 	pub.ExtractCover = extractCover
 	pub.InputPath = inputPath
-	// set the AltID as the file name without extension; it may be sent to the LCP Server in the genAltid option is active
-	pub.AltID = strings.TrimSuffix(filepath.Base(pub.InputPath), filepath.Ext(pub.InputPath))
 
 	// if contentID is not set, generate a random UUID
 	if contentID == "" {
@@ -185,7 +183,7 @@ func ProcessEncryption(contentID, contentKey, inputPath, tempRepo, outputRepo, s
 		// the encryption tool stores the encrypted publication in an S3 storage
 		// and delete the temp file
 		fromPath := filepath.Join(pub.OutputRepo, pub.FileName)
-		err = StoreFileOnS3(fromPath, storageRepo, pub.FileName)
+		err = StoreFileOnS3(fromPath, storageRepo, pub.FileName, s3opts)
 		if err != nil {
 			return nil, err
 		}
@@ -193,7 +191,7 @@ func ProcessEncryption(contentID, contentKey, inputPath, tempRepo, outputRepo, s
 		// and delete the cover
 		if pub.ExtractCover && pub.CoverName != "" {
 			fromPath := filepath.Join(pub.OutputRepo, pub.CoverName)
-			err = StoreFileOnS3(fromPath, storageRepo, pub.CoverName)
+			err = StoreFileOnS3(fromPath, storageRepo, pub.CoverName, s3opts)
 			if err != nil {
 				return nil, err
 			}
@@ -279,7 +277,7 @@ func setTargetFileInfo(pub *Publication, storageFilename string) error {
 		targetExt = ".lcpdf"
 		pub.ContentType = "application/pdf+lcp"
 	case ".audiobook":
-		targetExt = ".lcpau"
+		targetExt = ".lcpa"
 		pub.ContentType = "application/audiobook+lcp"
 	case ".divina":
 		targetExt = ".lcpdi"
@@ -533,7 +531,7 @@ func buildEncryptedRPF(pub *Publication, encrypter crypto.Encrypter, contentKey 
 	ext := filepath.Ext(pub.FileName)
 	switch reader.ConformsTo() {
 	case "https://readium.org/webpub-manifest/profiles/audiobook":
-		pub.FileName = strings.TrimSuffix(pub.FileName, ext) + ".lcpau"
+		pub.FileName = strings.TrimSuffix(pub.FileName, ext) + ".lcpa"
 		pub.ContentType = "application/audiobook+lcp"
 	case "https://readium.org/webpub-manifest/profiles/divina":
 		pub.FileName = strings.TrimSuffix(pub.FileName, ext) + ".lcpdi"

@@ -108,7 +108,7 @@ func encryptPublication(inputPath string, pub *Publication, pubManager Publicati
 	// FIXME: work on a direct storage of the output file.
 	outputRepo := config.Config.FrontendServer.EncryptedRepository
 	empty := ""
-	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty, false, false)
+	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty, false, false, encrypt.S3Options{})
 	if err != nil {
 		return err
 	}
@@ -116,12 +116,13 @@ func encryptPublication(inputPath string, pub *Publication, pubManager Publicati
 	// send a notification to the License Server v1
 	err = encrypt.NotifyLCPServer(
 		*notification,
+		false, // new publication
 		"", /// no provider uri
 		config.Config.LcpServer.PublicBaseUrl,
 		false,
 		config.Config.LcpUpdateAuth.Username,
 		config.Config.LcpUpdateAuth.Password,
-		false, false) // non verbose, don't generate an alternative id
+		false) // non verbose
 	if err != nil {
 		return err
 	}

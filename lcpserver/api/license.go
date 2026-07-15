@@ -486,7 +486,7 @@ func GetProtectedPublication(w http.ResponseWriter, r *http.Request, s Server) {
 	licenseID := vars["license_id"]
 
 	// add a log
-	logging.Print("Get a Licensed publication for License " + licenseID)
+	logging.Print("Get a protected publication for License " + licenseID)
 
 	// get the input body
 	var licIn license.License
@@ -555,7 +555,7 @@ func GenerateProtectedPublication(w http.ResponseWriter, r *http.Request, s Serv
 	vars := mux.Vars(r)
 	contentID := vars["content_id"]
 
-	logging.Print("Generate a Licensed publication for Content " + contentID)
+	logging.Print("Generate a protected publication for content " + contentID)
 
 	// get the input body
 	var lic license.License
@@ -670,19 +670,41 @@ func UpdateLicense(w http.ResponseWriter, r *http.Request, s Server) {
 	}
 	if licIn.Rights.Print != nil {
 		log.Println("new right, print: ", *licIn.Rights.Print)
-		licOut.Rights.Print = licIn.Rights.Print
+		if *licIn.Rights.Print >= 0 {
+			licOut.Rights.Print = licIn.Rights.Print
+			// a negative value means "unconstrained" in the LCP specification
+		} else {
+			licOut.Rights.Print = nil
+		}
 	}
 	if licIn.Rights.Copy != nil {
 		log.Println("new right, copy: ", *licIn.Rights.Copy)
-		licOut.Rights.Copy = licIn.Rights.Copy
+		if *licIn.Rights.Copy >= 0 {
+			licOut.Rights.Copy = licIn.Rights.Copy
+			// a negative value means "unconstrained" in the LCP specification
+		} else {
+			licOut.Rights.Copy = nil
+		}
 	}
 	if licIn.Rights.Start != nil {
 		log.Println("new right, start: ", *licIn.Rights.Start)
-		licOut.Rights.Start = licIn.Rights.Start
+		t := *licIn.Rights.Start
+		if !t.IsZero() {
+			licOut.Rights.Start = licIn.Rights.Start
+			// the zero timestamp value "January 1, year 1, 00:00:00 UTC." means "unconstrained"
+		} else {
+			licOut.Rights.Start = nil
+		}
 	}
 	if licIn.Rights.End != nil {
 		log.Println("new right, end: ", *licIn.Rights.End)
-		licOut.Rights.End = licIn.Rights.End
+		t := *licIn.Rights.End
+		if !t.IsZero() {
+			licOut.Rights.End = licIn.Rights.End
+			// the zero timestamp value means "unconstrained"
+		} else {
+			licOut.Rights.End = nil
+		}
 	}
 	// update the license in the database
 	err = s.Licenses().Update(licOut)

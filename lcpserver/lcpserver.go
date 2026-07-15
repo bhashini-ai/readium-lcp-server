@@ -103,15 +103,15 @@ func main() {
 		}
 	}
 
-	idx, err := index.Open(db)
-	if err != nil {
-		log.Println("Error opening the index db: " + err.Error())
-		os.Exit(1)
-	}
-
 	lst, err := license.Open(db)
 	if err != nil {
 		log.Println("Error opening the license db: " + err.Error())
+		os.Exit(1)
+	}
+
+	idx, err := index.Open(db)
+	if err != nil {
+		log.Println("Error opening the index db: " + err.Error())
 		os.Exit(1)
 	}
 
@@ -169,7 +169,8 @@ func main() {
 }
 
 func HandleSignals() {
-	sigChan := make(chan os.Signal)
+	// Buffer size should be >= number of signals we're listening for
+	sigChan := make(chan os.Signal, 1) // or 3 to match the exact number of signals
 	go func() {
 		stacktrace := make([]byte, 1<<20)
 		for sig := range sigChan {
