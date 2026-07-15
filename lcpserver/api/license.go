@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
@@ -25,6 +24,7 @@ import (
 	"github.com/readium/readium-lcp-server/epub"
 	"github.com/readium/readium-lcp-server/index"
 	"github.com/readium/readium-lcp-server/license"
+	"github.com/readium/readium-lcp-server/logging"
 	"github.com/readium/readium-lcp-server/problem"
 	"github.com/readium/readium-lcp-server/storage"
 )
@@ -114,12 +114,16 @@ func setRights(lic *license.License) {
 }
 
 // build a license, common to get and generate license, get and generate licensed publication
-func buildLicense(lic *license.License, s Server) error {
+func buildLicense(lic *license.License, s Server, updatefix bool) error {
 
 	// set the LCP profile
-	license.SetLicenseProfile(lic)
+	err := license.SetLicenseProfile(lic)
+	if err != nil {
+		log.Println("Build License: " + err.Error())
+		return err
+	}
 
-	// force the algorithm to the one defined by the basic and 1.0 profiles
+	// force the algorithm to the one defined by the current profiles
 	lic.Encryption.UserKey.Algorithm = "http://www.w3.org/2001/04/xmlenc#sha256"
 
 	// get content info from the db
@@ -139,6 +143,21 @@ func buildLicense(lic *license.License, s Server) error {
 	if err != nil {
 		return err
 	}
+
+	// fix an issue with clients which test that the date of last update of the license
+	// is after the date of creation of the X509 certificate.
+	// Because of this, when a cert is replaced, fresh licenses are not accepted by such clients
+	// when they have been created / updated before the cert update.
+	if updatefix && config.Config.LcpServer.CertDate != "" {
+		certDate, err := time.Parse("2006-01-02", config.Config.LcpServer.CertDate)
+		if err != nil {
+			return err
+		}
+		if lic.Issued.Before(certDate) && (lic.Updated == nil || lic.Updated.Before(certDate)) {
+			lic.Updated = &certDate
+		}
+	}
+
 	// sign the license
 	err = license.SignLicense(lic, s.Certificate())
 	if err != nil {
@@ -196,7 +215,7 @@ func buildLicensedPublication(lic *license.License, s Server) (buf bytes.Buffer,
 	if err != nil {
 		return buf, err
 	}
-	b, err := ioutil.ReadAll(contents)
+	b, err := io.ReadAll(contents)
 	if err != nil {
 		return buf, err
 	}
@@ -249,7 +268,8 @@ func GetLicense(w http.ResponseWriter, r *http.Request, s Server) {
 	// get the license id from the request URL
 	licenseID := vars["license_id"]
 
-	log.Println("Get License with id", licenseID)
+	// add a log
+	logging.Print("Get the License " + licenseID)
 
 	// initialize the license from the info stored in the db.
 	var licOut license.License
@@ -300,25 +320,10 @@ func GetLicense(w http.ResponseWriter, r *http.Request, s Server) {
 	// copy useful data from licIn to LicOut
 	copyInputToLicense(&licIn, &licOut)
 	// build the license
-	err = buildLicense(&licOut, s)
+	err = buildLicense(&licOut, s, true)
 	if err != nil {
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
 		return
-	}
-
-	// fix an issue with clients which test that the date of last update of the license
-	// is after the date of creation of the X509 certificate.
-	// Because of this, when a cert is replaced, fresh licenses are not accepted by such clients
-	// when they have been created / updated before the cert update.
-	if config.Config.LcpServer.CertDate != "" {
-		certDate, err := time.Parse("2006-01-02", config.Config.LcpServer.CertDate)
-		if err != nil {
-			problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
-			return
-		}
-		if licOut.Issued.Before(certDate) && (licOut.Updated == nil || licOut.Updated.Before(certDate)) {
-			licOut.Updated = &certDate
-		}
 	}
 
 	// set the http headers
@@ -363,7 +368,7 @@ func GenerateLicense(w http.ResponseWriter, r *http.Request, s Server) {
 	setRights(&lic)
 
 	// build the license
-	err = buildLicense(&lic, s)
+	err = buildLicense(&lic, s, false)
 	if err != nil {
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
 		return
@@ -377,7 +382,8 @@ func GenerateLicense(w http.ResponseWriter, r *http.Request, s Server) {
 		return
 	}
 
-	log.Println("New License:", lic.ID, ". Content:", contentID, "User:", lic.User.ID)
+	// add a log
+	logging.Print("Generate a License " + lic.ID + " for Content " + contentID + " and User " + lic.User.ID)
 
 	// set http headers
 	w.Header().Add("Content-Type", api.ContentType_LCP_JSON)
@@ -402,7 +408,8 @@ func GetLicensedPublication(w http.ResponseWriter, r *http.Request, s Server) {
 	vars := mux.Vars(r)
 	licenseID := vars["license_id"]
 
-	log.Println("Get a Licensed publication for license id", licenseID)
+	// add a log
+	logging.Print("Get a Licensed publication for License " + licenseID)
 
 	// get the input body
 	var licIn license.License
@@ -430,7 +437,7 @@ func GetLicensedPublication(w http.ResponseWriter, r *http.Request, s Server) {
 	// copy useful data from licIn to LicOut
 	copyInputToLicense(&licIn, &licOut)
 	// build the license
-	err = buildLicense(&licOut, s)
+	err = buildLicense(&licOut, s, true)
 	if err != nil {
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
 		return
@@ -472,7 +479,7 @@ func GenerateLicensedPublication(w http.ResponseWriter, r *http.Request, s Serve
 	vars := mux.Vars(r)
 	contentID := vars["content_id"]
 
-	log.Println("Generate a Licensed publication for content id", contentID)
+	logging.Print("Generate a Licensed publication for Content " + contentID)
 
 	// get the input body
 	var lic license.License
@@ -493,7 +500,7 @@ func GenerateLicensedPublication(w http.ResponseWriter, r *http.Request, s Serve
 	setRights(&lic)
 
 	// build the license
-	err = buildLicense(&lic, s)
+	err = buildLicense(&lic, s, false)
 	if err != nil {
 		problem.Error(w, r, problem.Problem{Detail: err.Error()}, http.StatusInternalServerError)
 		return
@@ -540,8 +547,10 @@ func GenerateLicensedPublication(w http.ResponseWriter, r *http.Request, s Serve
 
 // UpdateLicense updates an existing license.
 // parameters:
-// 		{license_id} in the calling URL
-// 		partial license containing properties which should be updated (and only these)
+//
+//	{license_id} in the calling URL
+//	partial license containing properties which should be updated (and only these)
+//
 // return: an http status code (200, 400 or 404)
 // Usually called from the License Status Server after a renew, return or cancel/revoke action
 // -> updates the end date.
@@ -551,7 +560,8 @@ func UpdateLicense(w http.ResponseWriter, r *http.Request, s Server) {
 	// get the license id from the request URL
 	licenseID := vars["license_id"]
 
-	log.Println("Update License with id", licenseID)
+	// add a log
+	logging.Print("Update the License " + licenseID)
 
 	var licIn license.License
 	err := DecodeJSONLicense(r, &licIn)
@@ -609,7 +619,8 @@ func UpdateLicense(w http.ResponseWriter, r *http.Request, s Server) {
 
 // ListLicenses returns a JSON struct with information about the existing licenses
 // parameters:
-// 	page: page number
+//
+//	page: page number
 //	per_page: number of items par page
 func ListLicenses(w http.ResponseWriter, r *http.Request, s Server) {
 
@@ -642,7 +653,10 @@ func ListLicenses(w http.ResponseWriter, r *http.Request, s Server) {
 		return
 	}
 	licenses := make([]license.LicenseReport, 0)
-	//log.Println("ListAll(" + strconv.Itoa(int(per_page)) + "," + strconv.Itoa(int(page)) + ")")
+
+	// add a log
+	logging.Print("List Licenses (page " + strconv.Itoa(int(page)) + ", count " + strconv.Itoa(int(perPage)) + ")")
+
 	fn := s.Licenses().ListAll(int(perPage), int(page))
 	for it, err := fn(); err == nil; it, err = fn() {
 		licenses = append(licenses, it)
@@ -669,8 +683,9 @@ func ListLicenses(w http.ResponseWriter, r *http.Request, s Server) {
 
 // ListLicensesForContent lists all licenses associated with a given content
 // parameters:
+//
 //	content_id: content identifier
-// 	page: page number (default 1)
+//	page: page number (default 1)
 //	per_page: number of items par page (default 30)
 func ListLicensesForContent(w http.ResponseWriter, r *http.Request, s Server) {
 
@@ -713,7 +728,10 @@ func ListLicensesForContent(w http.ResponseWriter, r *http.Request, s Server) {
 		return
 	}
 	licenses := make([]license.LicenseReport, 0)
-	//log.Println("List(" + contentId + "," + strconv.Itoa(int(per_page)) + "," + strconv.Itoa(int(page)) + ")")
+
+	// add a log
+	logging.Print("List Licenses for publication " + contentID + " (page " + strconv.Itoa(int(page)) + ", count " + strconv.Itoa(int(perPage)) + ")")
+
 	fn := s.Licenses().ListByContentID(contentID, int(perPage), int(page))
 	for it, err := fn(); err == nil; it, err = fn() {
 		licenses = append(licenses, it)

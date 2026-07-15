@@ -16,7 +16,6 @@ import (
 
 	"github.com/readium/readium-lcp-server/config"
 	"github.com/readium/readium-lcp-server/encrypt"
-	apilcp "github.com/readium/readium-lcp-server/lcpserver/api"
 )
 
 // Publication status
@@ -38,7 +37,7 @@ type WebPublication interface {
 	Update(publication Publication) error
 	Delete(id int64) error
 	List(page int, pageNum int) func() (Publication, error)
-	Upload(multipart.File, string, Publication) error
+	Upload(multipart.File, string, *Publication) error
 	CheckByTitle(title string) (int64, error)
 }
 
@@ -102,32 +101,32 @@ func (pubManager PublicationManager) CheckByTitle(title string) (int64, error) {
 
 // encryptPublication encrypts a publication, notifies the License Server
 // and inserts a record in the database.
-func encryptPublication(inputPath string, pub Publication, pubManager PublicationManager) error {
-
-	var notification *apilcp.LcpPublication
+func encryptPublication(inputPath string, pub *Publication, pubManager PublicationManager) error {
 
 	// encrypt the publication
 	// FIXME: work on a direct storage of the output file.
 	outputRepo := config.Config.FrontendServer.EncryptedRepository
 	empty := ""
-	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty)
+	notification, err := encrypt.ProcessEncryption(empty, empty, inputPath, empty, outputRepo, empty, empty, empty, false)
 	if err != nil {
 		return err
 	}
 
-	// send a notification to the License server
-	err = encrypt.NotifyLcpServer(
-		notification,
+	// send a notification to the License Server v1
+	err = encrypt.NotifyLCPServer(
+		*notification,
 		config.Config.LcpServer.PublicBaseUrl,
+		false,
 		config.Config.LcpUpdateAuth.Username,
-		config.Config.LcpUpdateAuth.Password)
+		config.Config.LcpUpdateAuth.Password,
+		false) // non verbose
 	if err != nil {
 		return err
 	}
 
 	// store the new publication in the db
 	// the publication uuid is the lcp db content id.
-	pub.UUID = notification.ContentID
+	pub.UUID = notification.UUID
 	pub.Status = StatusOk
 	_, err = pubManager.db.Exec("INSERT INTO publication (uuid, title, status) VALUES ( ?, ?, ?)",
 		pub.UUID, pub.Title, pub.Status)
@@ -149,7 +148,7 @@ func (pubManager PublicationManager) Add(pub Publication) error {
 	}
 
 	// encrypt the publication and send a notification to the License server
-	err := encryptPublication(inputPath, pub, pubManager)
+	err := encryptPublication(inputPath, &pub, pubManager)
 	if err != nil {
 		return err
 	}
@@ -161,7 +160,7 @@ func (pubManager PublicationManager) Add(pub Publication) error {
 
 // Upload creates a new publication, named after a POST form parameter.
 // Encrypts a master File and notifies the License server
-func (pubManager PublicationManager) Upload(file multipart.File, extension string, pub Publication) error {
+func (pubManager PublicationManager) Upload(file multipart.File, extension string, pub *Publication) error {
 
 	// create a temp file in the default directory
 	tmpfile, err := ioutil.TempFile("", "uploaded-*"+extension)

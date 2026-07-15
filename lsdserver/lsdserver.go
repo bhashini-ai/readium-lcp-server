@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	auth "github.com/abbot/go-http-auth"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/readium/readium-lcp-server/config"
 	licensestatuses "github.com/readium/readium-lcp-server/license_statuses"
-	"github.com/readium/readium-lcp-server/localization"
 	"github.com/readium/readium-lcp-server/logging"
 	lsdserver "github.com/readium/readium-lcp-server/lsdserver/server"
 	"github.com/readium/readium-lcp-server/transactions"
@@ -41,11 +41,6 @@ func main() {
 	config.ReadConfig(config_file)
 	log.Println("Config from " + config_file)
 
-	err = localization.InitTranslations()
-	if err != nil {
-		panic(err)
-	}
-
 	readonly = config.Config.LsdServer.ReadOnly
 
 	err = config.SetPublicUrls()
@@ -60,7 +55,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if driver == "sqlite3" {
+	if driver == "sqlite3" && !strings.Contains(cnxn, "_journal") {
 		_, err = db.Exec("PRAGMA journal_mode = WAL")
 		if err != nil {
 			panic(err)
@@ -93,10 +88,8 @@ func main() {
 	// the server will behave strangely, to test the resilience of LCP compliant apps
 	goofyMode := config.Config.GoofyMode
 
-	// a log file will be created with a specifc format, for compliance testing
-	complianceMode := config.Config.ComplianceMode
-	logDirectory := config.Config.LsdServer.LogDirectory
-	err = logging.Init(logDirectory, complianceMode)
+	// if the logging key is set, logs will be sent to a file and/or Slack channel for test purposes
+	err = logging.Init(config.Config.Logging)
 	if err != nil {
 		panic(err)
 	}
@@ -104,7 +97,7 @@ func main() {
 	HandleSignals()
 
 	parsedPort := strconv.Itoa(config.Config.LsdServer.Port)
-	s := lsdserver.New(":"+parsedPort, readonly, complianceMode, goofyMode, &hist, &trns, authenticator)
+	s := lsdserver.New(":"+parsedPort, readonly, goofyMode, &hist, &trns, authenticator)
 	if readonly {
 		log.Println("License status server running in readonly mode on port " + parsedPort)
 	} else {
